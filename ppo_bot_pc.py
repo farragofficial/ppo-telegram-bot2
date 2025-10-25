@@ -1,11 +1,10 @@
 import time
 import json
-from telegram import Bot
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler
+import requests
 from playwright.sync_api import sync_playwright
 
 # ===== إعدادات البوت =====
-TELEGRAM_TOKEN = '8343868844:AAG5rK_3MflfqxRiBBe7eM4Ux0iXQvBzjrQ'  # ضع توكن البوت هنا مباشرة
+TELEGRAM_TOKEN = '8343868844:AAG5rK_3MflfqxRiBBe7eM4Ux0iXQvBzjrQ'  # ضع التوكن هنا مباشرة
 DATA_FILE = "ppo_data.json"
 
 # تحميل البيانات السابقة أو إنشاء جديد
@@ -18,6 +17,9 @@ except:
 # حالة المستخدمين
 user_pending = {}  # chat_id -> بيانات مؤقتة
 user_save_pending = {}  # chat_id -> بيانات جاهزة للحفظ
+
+# رابط Telegram API
+BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/"
 
 # ===== Playwright =====
 TARGET_URL = "https://ppo.gov.eg/ppo/r/ppoportal/ppoportal/home"
@@ -81,105 +83,91 @@ def format_table(data):
         lines.append(f"{i}. " + " | ".join(row))
     return "\n".join(lines)
 
-# ===== Telegram Handlers =====
-PLATE, LETTERS, NID, PHONE, SAVE = range(5)
+def send_telegram(chat_id, text):
+    url = BASE_URL + "sendMessage"
+    payload = {"chat_id": chat_id, "text": text}
+    requests.post(url, data=payload)
 
-def start(update, context):
-    update.message.reply_text("أرسل رقم العربية لتبدأ العملية (أرقام فقط):")
-    return PLATE
+# ===== التفاعل مع المستخدم =====
+def process_message(chat_id, text):
+    text = text.strip()
+    # مرحلة البداية
+    if chat_id not in user_pending and chat_id not in user_save_pending:
+        if not text.isdigit():
+            send_telegram(chat_id, "رقم العربية يجب أن يحتوي أرقام فقط. أرسل الرقم مرة أخرى:")
+            return
+        user_pending[chat_id] = {"step": 1, "plate_number": text}
+        send_telegram(chat_id, "ابعت الحروف الثلاثة:")
+        return
 
-def handle_plate(update, context):
-    chat_id = update.message.chat_id
-    text = update.message.text.strip()
-    if not text.isdigit():
-        update.message.reply_text("رقم العربية يجب أن يحتوي أرقام فقط. أرسل الرقم مرة أخرى:")
-        return PLATE
-    context.user_data['plate_number'] = text
-    if text in saved_data:
-        context.user_data.update(saved_data[text])
-        update.message.reply_text(f"اللوحة {text} محفوظة مسبقًا. جاري جلب المخالفات...")
-        return fetch_violations(update, context)
-    update.message.reply_text("ابعت الحروف الثلاثة:")
-    return LETTERS
+    step = user_pending[chat_id]["step"]
+    if step == 1:
+        letters = text.replace(" ", "").upper()
+        if len(letters) != 3:
+            send_telegram(chat_id, "الحروف الثلاثة يجب أن تكون 3 أحرف فقط. ابعتها مرة أخرى:")
+            return
+        user_pending[chat_id]["letters"] = letters
+        user_pending[chat_id]["step"] = 2
+        send_telegram(chat_id, "ابعت الرقم القومي:")
+        return
+    if step == 2:
+        user_pending[chat_id]["national_id"] = text
+        user_pending[chat_id]["step"] = 3
+        send_telegram(chat_id, "ابعت رقم الهاتف:")
+        return
+    if step == 3:
+        user_pending[chat_id]["phone"] = text
+        send_telegram(chat_id, "جاري فتح الموقع وجلب المخالفات...")
+        # تشغيل Playwright وجلب الجدول
+        data = user_pending[chat_id]
+        try:
+            p, browser, page = make_driver()
+            open_page(page)
+            fill_data(page, data["plate_number"], data["letters"], data["national_id"], data["phone"])
+            table = get_violations_table(page)
+            if table:
+                send_telegram(chat_id, format_table(table))
+            else:
+                send_telegram(chat_id, "لم يتم العثور على مخالفات.")
+            browser.close()
+            p.stop()
+            user_save_pending[chat_id] = data.copy()
+            send_telegram(chat_id, "هل تريد حفظ البيانات للوحة؟ (نعم/لا)")
+        except Exception as e:
+            send_telegram(chat_id, f"حصل خطأ: {e}")
+        return
 
-def handle_letters(update, context):
-    letters = update.message.text.strip().replace(" ", "").upper()
-    if len(letters) != 3:
-        update.message.reply_text("الحروف الثلاثة يجب أن تكون 3 أحرف فقط. ابعتها مرة أخرى:")
-        return LETTERS
-    context.user_data['letters'] = letters
-    update.message.reply_text("ابعت الرقم القومي:")
-    return NID
-
-def handle_nid(update, context):
-    context.user_data['national_id'] = update.message.text.strip()
-    update.message.reply_text("ابعت رقم الهاتف:")
-    return PHONE
-
-def handle_phone(update, context):
-    context.user_data['phone'] = update.message.text.strip()
-    update.message.reply_text("جاري فتح الموقع وجلب المخالفات...")
-    return fetch_violations(update, context)
-
-def fetch_violations(update, context):
-    data = context.user_data
-    try:
-        p, browser, page = make_driver()
-        open_page(page)
-        fill_data(page, data['plate_number'], data['letters'], data['national_id'], data['phone'])
-        table = get_violations_table(page)
-        if table:
-            update.message.reply_text(format_table(table))
-        else:
-            update.message.reply_text("لم يتم العثور على مخالفات.")
-        browser.close()
-        p.stop()
-        user_save_pending[update.message.chat_id] = data.copy()
-        update.message.reply_text("هل تريد حفظ البيانات للوحة؟ (نعم/لا)")
-        return SAVE
-    except Exception as e:
-        update.message.reply_text(f"حصل خطأ: {e}")
-        return ConversationHandler.END
-
-def handle_save(update, context):
-    text = update.message.text.strip().lower()
-    chat_id = update.message.chat_id
-    if text == "نعم":
-        data = user_save_pending.get(chat_id)
-        if data:
-            saved_data[data['plate_number']] = data
+    # مرحلة حفظ البيانات
+    if chat_id in user_save_pending:
+        if text.lower() == "نعم":
+            data = user_save_pending[chat_id]
+            saved_data[data["plate_number"]] = data
             with open(DATA_FILE, "w", encoding="utf-8") as f:
                 json.dump(saved_data, f, ensure_ascii=False, indent=4)
-            update.message.reply_text(f"تم حفظ البيانات للوحة: {data['plate_number']}")
-    else:
-        update.message.reply_text("تم تجاهل حفظ البيانات.")
-    user_save_pending.pop(chat_id, None)
-    return ConversationHandler.END
+            send_telegram(chat_id, f"تم حفظ البيانات للوحة: {data['plate_number']}")
+        else:
+            send_telegram(chat_id, "تم تجاهل حفظ البيانات.")
+        user_save_pending.pop(chat_id, None)
+        user_pending.pop(chat_id, None)
+        return
 
-def cancel(update, context):
-    update.message.reply_text("تم إلغاء العملية.")
-    return ConversationHandler.END
-
-# ===== تشغيل البوت =====
+# ===== تشغيل البوت (polling بسيط) =====
 def main():
-    updater = Updater(TELEGRAM_TOKEN, use_context=True)
-    dp = updater.dispatcher
-
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            PLATE: [MessageHandler(Filters.text & ~Filters.command, handle_plate)],
-            LETTERS: [MessageHandler(Filters.text & ~Filters.command, handle_letters)],
-            NID: [MessageHandler(Filters.text & ~Filters.command, handle_nid)],
-            PHONE: [MessageHandler(Filters.text & ~Filters.command, handle_phone)],
-            SAVE: [MessageHandler(Filters.text & ~Filters.command, handle_save)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)]
-    )
-
-    dp.add_handler(conv_handler)
-    updater.start_polling()
-    updater.idle()
+    offset = 0
+    while True:
+        url = f"{BASE_URL}getUpdates?offset={offset}&timeout=60"
+        try:
+            r = requests.get(url).json()
+            for result in r.get("result", []):
+                offset = result["update_id"] + 1
+                if "message" in result:
+                    chat_id = result["message"]["chat"]["id"]
+                    text = result["message"].get("text", "")
+                    if text:
+                        process_message(chat_id, text)
+        except Exception as e:
+            print("Error:", e)
+        time.sleep(1)
 
 if __name__ == "__main__":
     main()
