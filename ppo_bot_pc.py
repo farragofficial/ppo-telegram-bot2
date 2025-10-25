@@ -1,6 +1,16 @@
-import subprocess, sys
+import asyncio
+import tempfile
+import subprocess
+import sys
+from telebot import TeleBot, types
 
-# تأكد إن Playwright والبراوزر متثبتين
+# توكن البوت
+BOT_TOKEN = "ضع_التوكن_بتاعك_هنا"
+bot = TeleBot(BOT_TOKEN)
+
+# ======================================================
+# تأكد من تثبيت playwright والمتصفح
+# ======================================================
 try:
     from playwright.async_api import async_playwright
 except ModuleNotFoundError:
@@ -8,65 +18,58 @@ except ModuleNotFoundError:
     subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
     from playwright.async_api import async_playwright
 
-# بعد كده كمل الكود العادي...
-
-import asyncio
-import os
-import tempfile
-import subprocess
-from telebot import TeleBot
-from playwright.async_api import async_playwright
-
-# ✅ تأكد من وجود Chromium
-try:
-    subprocess.run(["playwright", "install", "chromium"], check=True)
-except Exception as e:
-    print("⚠️ Error installing Chromium:", e)
-
-# 🔹 توكن البوت
-TOKEN = os.environ.get("BOT_TOKEN", "8343868844:AAG5rK_3MflfqxRiBBe7eM4Ux0iXQvBzjrQ")
-bot = TeleBot(TOKEN)
-
-async def generate_pdf_bytes(url: str) -> bytes:
-    """يفتح الموقع المطلوب ويعيد ملف PDF كـ bytes"""
+# ======================================================
+# دالة لتحويل موقع إلى PDF
+# ======================================================
+async def generate_pdf_from_url(url: str) -> bytes:
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-software-rasterizer",
+            ],
+        )
         page = await browser.new_page()
-        await page.goto(url, timeout=60000)
-        pdf_bytes = await page.pdf(format="A4", print_background=True)
+        await page.goto(url, wait_until="load", timeout=60000)
+        pdf_bytes = await page.pdf(format="A4")
         await browser.close()
         return pdf_bytes
 
-@bot.message_handler(commands=["start"])
+# ======================================================
+# تفاعل البوت
+# ======================================================
+@bot.message_handler(commands=['start'])
 def start(message):
-    chat_id = message.chat.id
-    bot.send_message(chat_id, "👋 أهلاً بيك! من فضلك ابعت رقم العربية:")
-    bot.register_next_step_handler(message, handle_plate)
+    bot.reply_to(message, "👋 أهلاً بيك! ابعت رقم العربية عشان أجيبلك الملف PDF.")
 
-def handle_plate(message):
-    chat_id = message.chat.id
-    plate = message.text.strip()
-    bot.send_message(chat_id, f"🔍 جاري تجهيز التقرير لـ {plate}...")
+@bot.message_handler(func=lambda msg: True)
+def handle_text(message):
+    car_number = message.text.strip()
+    bot.reply_to(message, f"⏳ جاري إنشاء ملف PDF لرقم العربية: {car_number}...")
+    asyncio.run(process_request(message, car_number))
 
-    async def process():
-        try:
-            url = "https://ppo.gov.eg/ppo/r/ppoportal/ppoportal/home"
-            pdf_data = await generate_pdf_bytes(url)
+async def process_request(message, car_number):
+    try:
+        # مثال: فتح صفحة PPO
+        url = f"https://ppo.gov.eg/ppo/r/ppoportal/ppoportal/home?plate={car_number}"
 
-            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-                tmp.write(pdf_data)
-                tmp_path = tmp.name
+        pdf_bytes = await generate_pdf_from_url(url)
 
-            with open(tmp_path, "rb") as f:
-                bot.send_document(chat_id, f, caption=f"📄 تم إنشاء ملف PDF خاص بـ {plate} ✅")
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(pdf_bytes)
+            tmp_path = tmp.name
 
-            os.remove(tmp_path)
-        except Exception as e:
-            bot.send_message(chat_id, f"⚠️ حصل خطأ أثناء إنشاء الملف:\n{e}")
+        with open(tmp_path, "rb") as pdf:
+            bot.send_document(message.chat.id, pdf, visible_file_name=f"{car_number}.pdf")
 
-    asyncio.run(process())
+    except Exception as e:
+        bot.reply_to(message, f"⚠️ حصل خطأ أثناء إنشاء الملف:\n{e}")
 
-if __name__ == "__main__":
-    print("🤖 Bot started (Render + Playwright fix)...")
-    bot.infinity_polling(timeout=60)
-
+# ======================================================
+# تشغيل البوت
+# ======================================================
+print("🤖 Bot started successfully on Render/KataBump...")
+bot.infinity_polling()
