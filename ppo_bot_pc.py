@@ -4,7 +4,7 @@ from telebot import TeleBot
 import tempfile
 
 # توكن البوت
-BOT_TOKEN = "ضع_التوكن_بتاعك_هنا"
+BOT_TOKEN = "8343868844:AAG5rK_3MflfqxRiBBe7eM4Ux0iXQvBzjrQ"
 bot = TeleBot(BOT_TOKEN)
 
 def generate_pdf_from_url(url: str, car_number: str) -> str:
@@ -32,3 +32,4 @@ def handle_text(message):
 
 print("🤖 Bot started successfully (WeasyPrint version)...")
 bot.infinity_polling()
+
