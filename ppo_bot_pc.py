@@ -1,8 +1,15 @@
 import asyncio
 import os
 import tempfile
+import subprocess
 from telebot import TeleBot
 from playwright.async_api import async_playwright
+
+# ✅ تأكد من وجود Chromium
+try:
+    subprocess.run(["playwright", "install", "chromium"], check=True)
+except Exception as e:
+    print("⚠️ Error installing Chromium:", e)
 
 # 🔹 توكن البوت
 TOKEN = os.environ.get("BOT_TOKEN", "8343868844:AAG5rK_3MflfqxRiBBe7eM4Ux0iXQvBzjrQ")
@@ -31,11 +38,9 @@ def handle_plate(message):
 
     async def process():
         try:
-            # 🔹 هنا ممكن نغير الرابط حسب الرقم لو الموقع بيتطلبه
             url = "https://ppo.gov.eg/ppo/r/ppoportal/ppoportal/home"
             pdf_data = await generate_pdf_bytes(url)
 
-            # 🔹 نحفظ مؤقتًا عشان نقدر نبعت
             with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
                 tmp.write(pdf_data)
                 tmp_path = tmp.name
@@ -50,5 +55,5 @@ def handle_plate(message):
     asyncio.run(process())
 
 if __name__ == "__main__":
-    print("🤖 Bot started on Render...")
+    print("🤖 Bot started (Render + Playwright fix)...")
     bot.infinity_polling(timeout=60)
