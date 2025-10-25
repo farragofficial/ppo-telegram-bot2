@@ -5,11 +5,11 @@ import json
 
 # ===== إعدادات البوت =====
 TELEGRAM_TOKEN = "8343868844:AAG5rK_3MflfqxRiBBe7eM4Ux0iXQvBzjrQ"
+# استخدمنا الـ WS URL والـ Token الخاص بالـ Railway Browserless
 BROWSERLESS_WS_URL = "wss://browserless-production-ffc6.up.railway.app?token=AGs1hzksA1FBUp4WMgNDIq8HVltYPAiamRXEMKffvkFByTkg"
-DATA_FILE = "ppo_data.json"
 BASE_TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/"
-
 TARGET_PAGE = "https://ppo.gov.eg/ppo/r/ppoportal/ppoportal/home"
+DATA_FILE = "ppo_data.json"
 
 # تحميل البيانات السابقة أو إنشاء جديد
 try:
@@ -19,8 +19,8 @@ except:
     saved_data = {}
 
 # حالة المستخدمين
-user_pending = {}  # chat_id -> بيانات مؤقتة
-user_save_pending = {}  # chat_id -> بيانات جاهزة للحفظ
+user_pending = {}      # chat_id -> بيانات مؤقتة
+user_save_pending = {} # chat_id -> بيانات جاهزة للحفظ
 
 # ===== دوال Telegram =====
 def send_message(chat_id, text):
@@ -33,7 +33,7 @@ def send_photo(chat_id, photo_bytes, filename="page.png"):
 # ===== Browserless Puppeteer =====
 def take_screenshot_browserless(plate_number, letters, national_id, phone):
     """
-    أخذ screenshot كامل للصفحة بعد ملء البيانات على Browserless
+    أخذ screenshot كامل للصفحة بعد ملء البيانات على Browserless (Railway)
     """
     js_code = f"""
     async () => {{
@@ -60,7 +60,7 @@ def take_screenshot_browserless(plate_number, letters, national_id, phone):
     }}
     """
     response = requests.post(
-        "https://chrome.browserless.io/content",
+        "https://browserless-production-ffc6.up.railway.app/content",
         json={"code": js_code},
         timeout=120
     )
