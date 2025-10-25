@@ -1,2 +1,2 @@
-pyTelegramBotAPI
-requests
+python-telegram-bot==13.17
+playwright==1.41.1
