@@ -5,7 +5,8 @@ import sys
 from telebot import TeleBot, types
 
 # توكن البوت
-BOT_TOKEN = "ضع_التوكن_بتاعك_هنا"
+BOT_TOKEN = "8343868844:AAG5rK_3MflfqxRiBBe7eM4Ux0iXQvBzjrQ"
+
 bot = TeleBot(BOT_TOKEN)
 
 # ======================================================
@@ -73,3 +74,4 @@ async def process_request(message, car_number):
 # ======================================================
 print("🤖 Bot started successfully on Render/KataBump...")
 bot.infinity_polling()
+
