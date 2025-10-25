@@ -1,3 +1,15 @@
+import subprocess, sys
+
+# تأكد إن Playwright والبراوزر متثبتين
+try:
+    from playwright.async_api import async_playwright
+except ModuleNotFoundError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
+    subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
+    from playwright.async_api import async_playwright
+
+# بعد كده كمل الكود العادي...
+
 import asyncio
 import os
 import tempfile
@@ -57,3 +69,4 @@ def handle_plate(message):
 if __name__ == "__main__":
     print("🤖 Bot started (Render + Playwright fix)...")
     bot.infinity_polling(timeout=60)
+
