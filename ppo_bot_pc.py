@@ -1,17 +1,20 @@
-import time
-import requests
-import base64
+import asyncio
 import json
+import base64
+import requests
+from pyppeteer import launch
 
 # ===== إعدادات البوت =====
 TELEGRAM_TOKEN = "8343868844:AAG5rK_3MflfqxRiBBe7eM4Ux0iXQvBzjrQ"
-# استخدمنا الـ WS URL والـ Token الخاص بالـ Railway Browserless
-BROWSERLESS_WS_URL = "wss://browserless-production-ffc6.up.railway.app?token=AGs1hzksA1FBUp4WMgNDIq8HVltYPAiamRXEMKffvkFByTkg"
 BASE_TELEGRAM_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/"
+
+# Browserless WebSocket على Railway
+BROWSERLESS_WS_URL = "wss://browserless-production-ffc6.up.railway.app?token=AGs1hzksA1FBUp4WMgNDIq8HVltYPAiamRXEMKffvkFByTkg"
+
 TARGET_PAGE = "https://ppo.gov.eg/ppo/r/ppoportal/ppoportal/home"
 DATA_FILE = "ppo_data.json"
 
-# تحميل البيانات السابقة أو إنشاء جديد
+# تحميل البيانات السابقة
 try:
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         saved_data = json.load(f)
@@ -19,8 +22,8 @@ except:
     saved_data = {}
 
 # حالة المستخدمين
-user_pending = {}      # chat_id -> بيانات مؤقتة
-user_save_pending = {} # chat_id -> بيانات جاهزة للحفظ
+user_pending = {}
+user_save_pending = {}
 
 # ===== دوال Telegram =====
 def send_message(chat_id, text):
@@ -31,41 +34,35 @@ def send_photo(chat_id, photo_bytes, filename="page.png"):
     requests.post(BASE_TELEGRAM_URL + "sendPhoto", data={"chat_id": chat_id}, files=files)
 
 # ===== Browserless Puppeteer =====
-def take_screenshot_browserless(plate_number, letters, national_id, phone):
+async def take_screenshot_browserless(plate_number, letters, national_id, phone):
     """
-    أخذ screenshot كامل للصفحة بعد ملء البيانات على Browserless (Railway)
+    فتح الصفحة على Browserless (Railway) وأخذ Screenshot كامل بعد ملء البيانات
     """
-    js_code = f"""
-    async () => {{
-        const puppeteer = require('puppeteer-core');
-        const browser = await puppeteer.connect({{
-            browserWSEndpoint: '{BROWSERLESS_WS_URL}'
-        }});
-        const page = await browser.newPage();
-        await page.goto('{TARGET_PAGE}', {{waitUntil: 'networkidle2'}});
-        // إدخال البيانات
-        await page.type('#P14_NUMBER_WITH_LETTER', '{plate_number}');
-        await page.type('#P14_LETER_1', '{letters[0]}');
-        await page.type('#P14_LETER_2', '{letters[1]}');
-        await page.type('#P14_LETER_3', '{letters[2]}');
-        await page.type('#P7_NATIONAL_ID_CASE_1', '{national_id}');
-        await page.type('#P7_PHONE_NUMBER_ID_CASE_1', '{phone}');
-        await page.click('#GET_FIN_LETTER_NUMBERS_BTN');
-        await page.waitForTimeout(1500);
-        try {{ await page.click('#B1776099686727570788'); }} catch{{}}
-        await page.waitForTimeout(2000);
-        const screenshot = await page.screenshot({{fullPage: true}});
-        await browser.close();
-        return screenshot.toString('base64');
-    }}
-    """
-    response = requests.post(
-        "https://browserless-production-ffc6.up.railway.app/content",
-        json={"code": js_code},
-        timeout=120
-    )
-    response.raise_for_status()
-    return base64.b64decode(response.json())
+    browser = await launch({
+        "headless": True,
+        "browserWSEndpoint": BROWSERLESS_WS_URL
+    })
+    page = await browser.newPage()
+    await page.goto(TARGET_PAGE, {"waitUntil": "networkidle2"})
+    
+    # ملء البيانات
+    await page.type('#P14_NUMBER_WITH_LETTER', plate_number)
+    await page.type('#P14_LETER_1', letters[0])
+    await page.type('#P14_LETER_2', letters[1])
+    await page.type('#P14_LETER_3', letters[2])
+    await page.type('#P7_NATIONAL_ID_CASE_1', national_id)
+    await page.type('#P7_PHONE_NUMBER_ID_CASE_1', phone)
+    await page.click('#GET_FIN_LETTER_NUMBERS_BTN')
+    await page.waitForTimeout(1500)
+    try:
+        await page.click('#B1776099686727570788')
+    except:
+        pass
+    await page.waitForTimeout(2000)
+    
+    screenshot = await page.screenshot({"fullPage": True})
+    await browser.close()
+    return screenshot
 
 # ===== معالجة رسائل المستخدم =====
 def process_message(chat_id, text):
@@ -98,10 +95,15 @@ def process_message(chat_id, text):
         send_message(chat_id, "جاري فتح الصفحة وأخذ Screenshot...")
         data = user_pending[chat_id]
         try:
-            img_bytes = take_screenshot_browserless(
-                data["plate_number"], data["letters"], data["national_id"], data["phone"]
+            screenshot_bytes = asyncio.get_event_loop().run_until_complete(
+                take_screenshot_browserless(
+                    data["plate_number"],
+                    data["letters"],
+                    data["national_id"],
+                    data["phone"]
+                )
             )
-            send_photo(chat_id, img_bytes, filename=f"{data['plate_number']}.png")
+            send_photo(chat_id, screenshot_bytes, filename=f"{data['plate_number']}.png")
             user_save_pending[chat_id] = data.copy()
             send_message(chat_id, "هل تريد حفظ البيانات للوحة؟ (نعم/لا)")
         except Exception as e:
