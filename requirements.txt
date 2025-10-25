@@ -1,3 +1,2 @@
 pyTelegramBotAPI
-weasyprint
 requests
