@@ -12,12 +12,20 @@ bot = TeleBot(BOT_TOKEN)
 # ======================================================
 # تأكد من تثبيت playwright والمتصفح
 # ======================================================
+import subprocess, sys, os
+
+# ======================================================
+# تأكد من تثبيت playwright والمتصفح
+# ======================================================
 try:
     from playwright.async_api import async_playwright
 except ModuleNotFoundError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "playwright"])
-    subprocess.check_call([sys.executable, "-m", "playwright", "install", "chromium"])
-    from playwright.async_api import async_playwright
+
+# ✅ تحميل المتصفح دائماً قبل التشغيل
+subprocess.call([sys.executable, "-m", "playwright", "install", "chromium"])
+from playwright.async_api import async_playwright
+
 
 # ======================================================
 # دالة لتحويل موقع إلى PDF
@@ -74,4 +82,5 @@ async def process_request(message, car_number):
 # ======================================================
 print("🤖 Bot started successfully on Render/KataBump...")
 bot.infinity_polling()
+
 
